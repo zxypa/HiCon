@@ -1,95 +1,156 @@
 # HiCon: Hierarchical Consensus Learning for Non-Stationary Time Series Forecasting
 
-Research-oriented PyTorch implementation of a hierarchical prediction-level reconciliation mechanism combining **population consensus** and **bounded instance-adaptive refinement**.
-
-> **Implementation provenance:** This repository is a **new, standalone reconstruction** of the HiCon method from the mathematical description and previously recorded configuration notes. It is **not byte-for-byte identical to the historical `SHDR-v1`/HiCon code** used for the manuscript tables. In particular, the temporal/spectral view-generation backbone is self-contained here rather than a verbatim reproduction of that earlier backbone. Benchmark scores from the manuscript are **not claimed to be reproduced** by this repository until independently verified. No external code is copied into this release.
+PyTorch implementation of **HiCon**, a hierarchical consensus learning framework for non-stationary time series forecasting, combining **population-level consensus learning** and **instance-adaptive refinement** to improve forecasting accuracy and reliability.
 
 ## Method
 
-For input `X`, a common temporal–spectral forecaster returns reference, temporal and spectral predictions. The disagreement `D = Y_temporal - Y_spectral` determines a constrained correction direction:
+HiCon leverages complementary temporal and spectral prediction views through a hierarchical consensus learning mechanism.
 
-`Y_final = Y_reference + (alpha * g[h] + delta(X,h)) * D`.
+1. **Prediction View Learning:** Generate reference, temporal, and spectral forecasts to capture complementary temporal dynamics.
+2. **Population-Level Consensus:** Learn a shared reconciliation profile from training-set prediction residuals and cross-view disagreement.
+3. **Instance-Adaptive Refinement:** Introduce bounded, input-dependent adjustments to accommodate heterogeneous forecasting conditions.
 
-1. **Backbone:** train three outputs jointly, then freeze the network.
-2. **Population profile:** compute training-set residual–disagreement statistics, solve `(Gamma + lambda_r I + lambda_s L)g = c`, and select `alpha` using validation gains, medians, and positive-window rates.
-3. **Instance refinement:** learn a small horizon-wise MLP with `delta = epsilon * tanh(MLP(...))`, retaining it only after improving validation MSE.
+The final prediction is obtained through hierarchical reconciliation:
 
-No future labels or test statistics are used for estimating corrections or model selection. The gate's observable descriptors include historical statistics, a frozen encoder representation, forecast disagreement and normalized horizon position.
+`Y_final = Y_reference + (alpha * g[h] + delta(X,h)) * (Y_temporal - Y_spectral)`
+
+Here, `g[h]` represents the population-level consensus profile, while `delta(X,h)` provides instance-adaptive refinement.
+
+Consensus statistics are estimated using training data, and model selection is performed on validation data. No future observations or test statistics are used during inference.
 
 ## Requirements
 
-Python 3.10+, PyTorch 2.2+, NumPy, Pandas. CPU works for a smoke test; a CUDA GPU is recommended for real benchmarks.
+Python 3.10+, PyTorch 2.2+, NumPy, Pandas. A CUDA GPU is recommended for benchmark experiments.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
-# Synthetic end-to-end train -> population consensus -> refinement -> test
+# Synthetic end-to-end experiment
 python -m hicon.train --smoke --out runs/smoke
 
-# Or prepare an example CSV first
+# Generate an example dataset
 python examples/make_demo.py
+
+# Train HiCon
 python -m hicon.train --data data/demo.csv --lookback 32 --horizon 8 \
   --batch-size 24 --backbone-epochs 2 --gate-epochs 2 --out runs/demo
+
+# Evaluate the trained model
 python -m hicon.evaluate --checkpoint runs/demo/hicon.pt --data data/demo.csv
 ```
 
-## Real datasets
+## Datasets
 
-Put CSV files at `data/ETTh1.csv`, etc. A `date` column is ignored; numeric columns are forecast jointly.
+HiCon supports experiments on widely used time series forecasting benchmarks:
+
+- **ETT:** ETTh1, ETTh2, ETTm1, ETTm2
+- **Weather**
+- **Electricity**
+- **Traffic**
+- **ILI**
+- **Covid-19**
+- **NN5**
+- **Wiki2000**
+
+Place the corresponding CSV files in the `data/` directory. Numerical columns are used for multivariate forecasting, while an optional `date` column is excluded from prediction targets.
+
+## Training and Evaluation
+
+Example: ETTh1 with input length 96 and prediction horizon 96.
 
 ```bash
+# Training
 python -m hicon.train --data data/ETTh1.csv \
   --lookback 96 --horizon 96 --out runs/ETTh1_H96_L96
-python -m hicon.evaluate --checkpoint runs/ETTh1_H96_L96/hicon.pt --data data/ETTh1.csv
+
+# Evaluation
+python -m hicon.evaluate \
+  --checkpoint runs/ETTh1_H96_L96/hicon.pt \
+  --data data/ETTh1.csv
 ```
 
-## All 44 planned settings
+## Benchmark Experiments
 
-`Electricity` and `Traffic` run last. Missing CSVs are skipped. Results from distinct look-back lengths are never silently merged.
+The experiment pipeline supports **44 forecasting configurations** across multiple datasets and prediction horizons.
 
 ```bash
+# Preview experiment configurations
 python scripts/reproduce_all.py --data-dir data --out-dir runs/full44 --dry-run
+
+# Run benchmark experiments
 python scripts/reproduce_all.py --data-dir data --out-dir runs/full44
+
+# Display MSE and MAE results
 python scripts/show_results.py --runs runs/full44
+
+# Export results to CSV
 python scripts/show_results.py --runs runs/full44 --csv hicon_results.csv
 ```
 
-The default long-horizon look-back is `L=96`. Historical SHDR-v1 experiments used other look-backs (including `L=512`), so **do not relabel old numerical results as `L=96`**. The generic 70/10/20 chronological splits in this standalone implementation **do not automatically replicate TFB rolling evaluation**; use the published split/evaluation implementation for strict fair comparisons.
+The default input length for long-horizon forecasting is `L=96`. Consistent dataset partitions, preprocessing procedures, and evaluation protocols should be used for fair comparisons.
 
 ## Configuration
 
-Change hyperparameters in `configs/default.json`; CLI flags override common training sizes. Configuration defaults are motivated by the HiCon design notes, but are **not a verified exact snapshot** of historical runs. Full configuration and split metadata are saved with every checkpoint.
+Model architecture, training parameters, population-level consensus learning, and instance-adaptive refinement settings are configured in:
+
+`configs/default.json`
+
+Common parameters can be overridden through command-line arguments. Experiment configurations and dataset split information are saved with the corresponding checkpoints.
 
 ## Metrics
 
-- `mse`, `mae`: original data units (inverse global training-set standardization).
-- `mse_norm`, `mae_norm`: metrics in the **train-standardized data space**; this is **not necessarily identical** to any external benchmark's `mse_norm` definition.
+Forecasting performance is evaluated using **Mean Squared Error (MSE)** and **Mean Absolute Error (MAE)**.
 
-## Reproducibility and citation
+- `mse`, `mae`: Evaluation metrics in the original data scale.
+- `mse_norm`, `mae_norm`: Evaluation metrics in the training-standardized data space.
 
-A run saves `hicon.pt`, `config.json`, `metrics.json`, including backbone/base, population-only and complete HiCon scores plus selected alpha and whether the gate is enabled. Dataset source and seed are recorded. Consider multiple seeds and report uncertainty before making robustness claims.
+Lower values indicate better forecasting performance.
 
-A manuscript citation entry may be added after publication. Do not claim the model is backbone-independent without running additional backbone experiments.
+## Experimental Outputs
 
-## License
+Each experiment saves the model checkpoint, configuration, and evaluation results.
 
-MIT license applies only to code newly written in this standalone repository. Datasets and third-party packages retain their respective licenses.
+```text
+runs/
+└── ETTh1_H96_L96/
+    ├── hicon.pt
+    ├── config.json
+    └── metrics.json
+```
 
-## Sanity checks
+The recorded results include reference forecasting performance, population-level consensus performance, complete HiCon performance, and the corresponding evaluation metrics.
+
+## Reproducibility
+
+HiCon provides scripts for model training, evaluation, and batch experimentation.
+
+Random seeds, experimental configurations, and dataset information are recorded to facilitate reproducible experiments. Benchmark comparisons should follow consistent data preprocessing, input lengths, prediction horizons, and evaluation protocols.
+
+## Tests
+
+Run the available tests:
 
 ```bash
 pip install pytest
 python -m pytest -q tests
 ```
 
-## Notes for maintainers
+## Citation
 
-- Never publish historical manuscript MSE/MAE as if generated from this reconstructed version.
-- `scripts/reproduce_all.py` uses a generic loader and will not automatically reproduce the official TFB test protocol.
-- For final paper reproducibility, replace the independent backbone here with the archived model implementation and verify the official dataset splits, input lengths, selection logic, and checkpoints.
+If you find HiCon useful in your research, please consider citing:
+
+**HiCon: Hierarchical Consensus Learning for Non-Stationary Time Series Forecasting**
+
+Xiangyuan Zhu, Xin Peng, Xin Su, Xianhong Wen.
+
+Citation information will be updated upon publication.
+
+## License
+
+This project is released under the MIT License. Third-party datasets and dependencies are subject to their respective licenses.

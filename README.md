@@ -141,15 +141,6 @@ pip install pytest
 python -m pytest -q tests
 ```
 
-## Citation
-
-If you find HiCon useful in your research, please consider citing:
-
-**HiCon: Hierarchical Consensus Learning for Non-Stationary Time Series Forecasting**
-
-Xiangyuan Zhu, Xin Peng, Xin Su, Xianhong Wen.
-
-Citation information will be updated upon publication.
 
 ## License
 
